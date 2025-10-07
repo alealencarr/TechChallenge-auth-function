@@ -12,11 +12,11 @@ jobs:
     # A máquina virtual que o GitHub usará para rodar os passos
     runs-on: ubuntu-latest
     steps:
-      # 1. Baixa o código do seu repositório para a máquina virtual
+      # 1. Baixa o código do repositório para a máquina virtual
       - name: 'Checkout'
         uses: actions/checkout@v4
 
-      # 2. Instala o SDK do .NET 8 na máquina virtual, pois seu projeto precisa dele
+      # 2. Instala o SDK do .NET 8 na máquina virtual 
       - name: 'Setup .NET'
         uses: actions/setup-dotnet@v4
         with:
@@ -29,7 +29,7 @@ jobs:
           dotnet publish --configuration Release --output ./publish --self-contained true -p:PublishReadyToRun=true
           
 
-      # 4. Faz o login no Azure usando as credenciais seguras que configuramos
+      # 4. Faz o login no Azure usando as credenciais setadas no GitHub  
       - name: 'Azure Login'
         uses: azure/login@v1
         with:
@@ -43,20 +43,19 @@ jobs:
           package: './publish'
           
       # 6. Configura as variáveis de ambiente na Function App no Azure
-      # É aqui que os segredos do GitHub são passados de forma segura para a sua função na nuvem
+
       - name: 'Set Application Settings in Azure'
         uses: Azure/CLI@v1
         with:
           inlineScript: |
-            # 1. Comando correto para configurar a CADEIA DE LIGAÇÃO, usando o comando 'webapp'
+ 
             az webapp config connection-string set \
               --name ${{ secrets.FUNCTION_APP_NAME }} \
               --resource-group rg-tchungry-prod \
               --connection-string-type SQLAzure \
               --settings "Default=${{ secrets.DB_CONNECTION_STRING }}"
-
-            # 2. Comando para configurar as outras CONFIGURAÇÕES DA APLICAÇÃO (continua igual)
+ 
             az functionapp config appsettings set \
               --name ${{ secrets.FUNCTION_APP_NAME }} \
               --resource-group rg-tchungry-prod \
-              --settings "JWT:Key=${{ secrets.JWT_KEY }}" "JWT:Issuer=${{ secrets.JWT_ISSUER }}" "JWT:Audience=${{ secrets.JWT_AUDIENCE }}"
+              --settings "JWT__Key=${{ secrets.JWT_KEY }}" "JWT__Issuer=${{ secrets.JWT_ISSUER }}" "JWT__Audience=${{ secrets.JWT_AUDIENCE }}"
