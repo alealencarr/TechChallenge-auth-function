@@ -47,5 +47,14 @@ jobs:
       - name: 'Set Application Settings in Azure'
         uses: Azure/CLI@v1
         with:
-          inlineScript: |
-            az functionapp config appsettings set --name ${{ secrets.FUNCTION_APP_NAME }} --resource-group rg-tchungry-prod --settings "ConnectionStrings:Default=${{ secrets.DB_CONNECTION_STRING }}" "JWT:Key=${{ secrets.JWT_KEY }}" "JWT:Issuer=${{ secrets.JWT_ISSUER }}" "JWT:Audience=${{ secrets.JWT_AUDIENCE }}"
+          inlineScript: |           
+            az functionapp config connection-string set \
+              --name ${{ secrets.FUNCTION_APP_NAME }} \
+              --resource-group rg-tchungry-prod \
+              --connection-string-type SQLAzure \
+              --settings "Default=${{ secrets.DB_CONNECTION_STRING }}"
+            
+            az functionapp config appsettings set \
+              --name ${{ secrets.FUNCTION_APP_NAME }} \
+              --resource-group rg-tchungry-prod \
+              --settings "JWT:Key=${{ secrets.JWT_KEY }}" "JWT:Issuer=${{ secrets.JWT_ISSUER }}" "JWT:Audience=${{ secrets.JWT_AUDIENCE }}" 
