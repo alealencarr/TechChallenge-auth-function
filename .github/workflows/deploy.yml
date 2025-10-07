@@ -16,17 +16,18 @@ jobs:
       - name: 'Checkout'
         uses: actions/checkout@v4
 
-      # 2. Instala o SDK do .NET 9 na máquina virtual, pois seu projeto precisa dele
+      # 2. Instala o SDK do .NET 8 na máquina virtual, pois seu projeto precisa dele
       - name: 'Setup .NET'
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '8.0.x'
           
       # 3. Compila o projeto em modo Release e publica os artefatos em uma pasta chamada './publish'
       - name: 'Build and publish'
         run: |
           dotnet build --configuration Release
-          dotnet publish --configuration Release --output ./publish
+          dotnet publish --configuration Release --output ./publish --self-contained true -p:PublishReadyToRun=true
+          
 
       # 4. Faz o login no Azure usando as credenciais seguras que configuramos
       - name: 'Azure Login'
