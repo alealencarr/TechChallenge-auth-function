@@ -1,182 +1,65 @@
-name: Deploy Azure Function
+name: Deploy Azure Function App
 
 on:
   push:
     branches:
-      - main
+      - main  
   workflow_dispatch:
 
+env:
+  AZURE_FUNCTIONAPP_NAME: ${{ secrets.FUNCTION_APP_NAME }}
+  AZURE_RESOURCE_GROUP: rg-tchungry-prod
+
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    
     steps:
-      # 1. Baixa o código do repositório
+      # 1. Baixa o código do seu repositório para a máquina virtual
       - name: 'Checkout'
         uses: actions/checkout@v4
-      
-      # 2. Instala o SDK do .NET 8
+
+      # 2. Instala o SDK do .NET 8 na máquina virtual, pois seu projeto precisa dele
       - name: 'Setup .NET'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      
-      # 3. Compila e publica o projeto
-      - name: 'Build and Publish'
+
+      # 3. Compila e publica o projeto da Function App
+      - name: 'Dotnet Publish'
         run: |
+          dotnet restore
           dotnet publish --configuration Release --output ./publish --self-contained true -p:PublishReadyToRun=true
-      
-      # 4. Faz login no Azure
+          
+
+      # 4. Faz o login no Azure usando as credenciais seguras que configuramos
       - name: 'Azure Login'
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-      
-      # 5. REMOVE RESTRIÇÕES DE REDE TEMPORARIAMENTE (Site + SCM)
-      - name: 'Remover restrições de rede (temporário)'
-        uses: Azure/CLI@v1
+
+      # 5. Faz o deploy da Function App para o Azure
+      - name: 'Deploy Azure Function App'
+        uses: Azure/functions-action@v1
         with:
-          inlineScript: |
-            echo "🔓 Removendo restrições de rede temporariamente..."
-            
-            FUNC_NAME="${{ secrets.FUNCTION_APP_NAME }}"
-            RG_NAME="rg-tchungry-prod"
-            
-            # Remove restrições do site principal
-            echo "📍 Removendo restrições do site principal..."
-            az functionapp config access-restriction show \
-              --name $FUNC_NAME \
-              --resource-group $RG_NAME \
-              --query "ipSecurityRestrictions[].name" -o tsv | \
-            while read rule; do
-              if [ ! -z "$rule" ] && [ "$rule" != "Allow" ]; then
-                echo "  Removendo regra: $rule"
-                az functionapp config access-restriction remove \
-                  --name $FUNC_NAME \
-                  --resource-group $RG_NAME \
-                  --rule-name "$rule" 2>/dev/null || true
-              fi
-            done
-            
-            # Remove restrições do SCM site (Kudu/Deploy) - CRÍTICO PARA DEPLOY!
-            echo "🔧 Removendo restrições do SCM site (Kudu)..."
-            az functionapp config access-restriction show \
-              --name $FUNC_NAME \
-              --resource-group $RG_NAME \
-              --query "scmIpSecurityRestrictions[].name" -o tsv | \
-            while read rule; do
-              if [ ! -z "$rule" ] && [ "$rule" != "Allow" ]; then
-                echo "  Removendo regra SCM: $rule"
-                az functionapp config access-restriction remove \
-                  --name $FUNC_NAME \
-                  --resource-group $RG_NAME \
-                  --rule-name "$rule" \
-                  --scm-site 2>/dev/null || true
-              fi
-            done
-            
-            # Garante acesso público habilitado
-            echo "🌐 Habilitando acesso público..."
-            az resource update \
-              --resource-group $RG_NAME \
-              --name $FUNC_NAME \
-              --resource-type "Microsoft.Web/sites" \
-              --set properties.publicNetworkAccess=Enabled 2>/dev/null || true
-            
-            echo "✅ Restrições removidas (site + SCM)!"
-      
-      # 6. Aguarda propagação das mudanças de rede
-      - name: 'Aguardar propagação'
-        run: |
-          echo "⏳ Aguardando propagação das mudanças de rede..."
-          sleep 45
-          echo "✅ Propagação concluída!"
-      
-      # 7. Configura as variáveis de ambiente
+          app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+          resource-group: ${{ env.AZURE_RESOURCE_GROUP }}
+          package: './publish'
+
+      # 6. Configura as variáveis de ambiente na Function App no Azure
+      # É aqui que os segredos do GitHub são passados de forma segura para a sua função na nuvem
       - name: 'Set Application Settings in Azure'
         uses: Azure/CLI@v1
         with:
           inlineScript: |
-            echo "⚙️ Configurando variáveis de ambiente..."
-            
-            # Connection String do Banco
+            # 1. Comando correto para configurar a CADEIA DE LIGAÇÃO, usando o comando 'webapp'
             az webapp config connection-string set \
-              --name ${{ secrets.FUNCTION_APP_NAME }} \
-              --resource-group rg-tchungry-prod \
+              --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
               --connection-string-type SQLAzure \
               --settings "Default=${{ secrets.DB_CONNECTION_STRING }}"
-            
-            # Configurações JWT
+
+            # 2. Comando para configurar as outras CONFIGURAÇÕES DA APLICAÇÃO
             az functionapp config appsettings set \
-              --name ${{ secrets.FUNCTION_APP_NAME }} \
-              --resource-group rg-tchungry-prod \
-              --settings \
-                "JWT__Key=${{ secrets.JWT_KEY }}" \
-                "JWT__Issuer=${{ secrets.JWT_ISSUER }}" \
-                "JWT__Audience=${{ secrets.JWT_AUDIENCE }}"
-            
-            echo "✅ Variáveis configuradas!"
-      
-      # 8. Faz o deploy da Function App
-      - name: 'Deploy to Azure Function'
-        uses: Azure/functions-action@v1
-        with:
-          app-name: ${{ secrets.FUNCTION_APP_NAME }}
-          package: './publish'
-      
-      # 9. RESTAURA AS RESTRIÇÕES DE REDE (Site + SCM)
-      - name: 'Restaurar restrições de rede'
-        if: always() # Executa mesmo se houver falha nos steps anteriores
-        uses: Azure/CLI@v1
-        with:
-          inlineScript: |
-            echo "🔒 Restaurando restrições de rede..."
-            
-            FUNC_NAME="${{ secrets.FUNCTION_APP_NAME }}"
-            RG_NAME="rg-tchungry-prod"
-            
-            # === SITE PRINCIPAL ===
-            echo "📍 Bloqueando acesso público no site principal..."
-            
-            # Remove a regra DenyAllPublic se já existir
-            az functionapp config access-restriction remove \
-              --name $FUNC_NAME \
-              --resource-group $RG_NAME \
-              --rule-name DenyAllPublic 2>/dev/null || true
-            
-            # Recria a regra bloqueando todo acesso público
-            az functionapp config access-restriction add \
-              --name $FUNC_NAME \
-              --resource-group $RG_NAME \
-              --rule-name DenyAllPublic \
-              --action Deny \
-              --ip-address 0.0.0.0/0 \
-              --priority 2147483647
-            
-            # === SCM SITE (KUDU/DEPLOY) ===
-            echo "🔧 Bloqueando acesso público no SCM site..."
-            
-            # Remove a regra DenyAllPublic_SCM se já existir
-            az functionapp config access-restriction remove \
-              --name $FUNC_NAME \
-              --resource-group $RG_NAME \
-              --rule-name DenyAllPublic_SCM \
-              --scm-site 2>/dev/null || true
-            
-            # Recria a regra bloqueando todo acesso público no SCM
-            az functionapp config access-restriction add \
-              --name $FUNC_NAME \
-              --resource-group $RG_NAME \
-              --rule-name DenyAllPublic_SCM \
-              --action Deny \
-              --ip-address 0.0.0.0/0 \
-              --priority 2147483647 \
-              --scm-site
-            
-            echo "✅ Restrições restauradas!"
-            echo "ℹ️ Apenas o APIM via Private Endpoint consegue acessar agora."
-      
-      # 10. Logout do Azure
-      - name: 'Azure Logout'
-        if: always()
-        run: az logout
+              --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --settings "JWT__Key=${{ secrets.JWT_KEY }}" "JWT__Issuer=${{ secrets.JWT_ISSUER }}" "JWT__Audience=${{ secrets.JWT_AUDIENCE }}"
