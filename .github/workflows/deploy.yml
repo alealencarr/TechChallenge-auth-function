@@ -1,7 +1,5 @@
-# Nome do workflow que aparecerá na aba "Actions" do GitHub
 name: Deploy Azure Function
 
-# Gatilho: Este workflow será executado sempre que houver um push ou merge na branch 'main'
 on:
   push:
     branches:
@@ -9,53 +7,70 @@ on:
 
 jobs:
   build-and-deploy:
-    # A máquina virtual que o GitHub usará para rodar os passos
     runs-on: ubuntu-latest
     steps:
-      # 1. Baixa o código do repositório para a máquina virtual
       - name: 'Checkout'
         uses: actions/checkout@v4
 
-      # 2. Instala o SDK do .NET 8 na máquina virtual 
       - name: 'Setup .NET'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
           
-      # 3. Compila o projeto em modo Release e publica os artefatos em uma pasta chamada './publish'
       - name: 'Build and publish'
         run: |
           dotnet build --configuration Release
-          dotnet publish --configuration Release --output ./publish --self-contained true -p:PublishReadyToRun=true
-          
+          dotnet publish --configuration Release --output ./publish
 
-      # 4. Faz o login no Azure usando as credenciais setadas no GitHub  
       - name: 'Azure Login'
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 5. Faz o deploy do conteúdo da pasta './publish' para a Function App no Azure
+      # --- ✅ BLOCO NOVO ADICIONADO ---
+      # Abre um "portão de serviço" temporário para o deploy
+      - name: 'Allow GitHub Actions IP'
+        uses: Azure/CLI@v1
+        with:
+          inlineScript: |
+         
+            RUNNER_IP=$(curl -s 'https://api.ipify.org')
+            echo "Pipeline runner IP is $RUNNER_IP"
+            
+            az functionapp config access-restriction add \
+              --resource-group rg-tchungry-prod \
+              --name ${{ secrets.FUNCTION_APP_NAME }} \
+              --rule-name "Allow GitHub Actions Runner" \
+              --action Allow \
+              --ip-address $RUNNER_IP \
+              --priority 200 \
+              --scm-site true
+
       - name: 'Deploy to Azure Functions'
         uses: Azure/functions-action@v1
         with:
           app-name: ${{ secrets.FUNCTION_APP_NAME }}
           package: './publish'
-          
-      # 6. Configura as variáveis de ambiente na Function App no Azure
-
+      
+      # --- ✅ BLOCO NOVO ADICIONADO ---
+      # Fecha o "portão de serviço", aconteça o que acontecer
+      - name: 'Remove GitHub Actions IP'
+        # 'if: always()' garante que este passo corre SEMPRE, mesmo que o deploy falhe
+        if: always()
+        uses: Azure/CLI@v1
+        with:
+          inlineScript: |
+            echo "Removing temporary access rule..."
+            az functionapp config access-restriction remove \
+              --resource-group rg-tchungry-prod \
+              --name ${{ secrets.FUNCTION_APP_NAME }} \
+              --rule-name "Allow GitHub Actions Runner" \
+              --scm-site true
+      
+      # A configuração das App Settings continua igual
       - name: 'Set Application Settings in Azure'
         uses: Azure/CLI@v1
         with:
           inlineScript: |
- 
-            az webapp config connection-string set \
-              --name ${{ secrets.FUNCTION_APP_NAME }} \
-              --resource-group rg-tchungry-prod \
-              --connection-string-type SQLAzure \
-              --settings "Default=${{ secrets.DB_CONNECTION_STRING }}"
- 
-            az functionapp config appsettings set \
-              --name ${{ secrets.FUNCTION_APP_NAME }} \
-              --resource-group rg-tchungry-prod \
-              --settings "JWT__Key=${{ secrets.JWT_KEY }}" "JWT__Issuer=${{ secrets.JWT_ISSUER }}" "JWT__Audience=${{ secrets.JWT_AUDIENCE }}"
+            az webapp config connection-string set --name ${{ secrets.FUNCTION_APP_NAME }} --resource-group rg-tchungry-prod --connection-string-type SQLAzure --settings "Default=${{ secrets.DB_CONNECTION_STRING }}"
+            az functionapp config appsettings set --name ${{ secrets.FUNCTION_APP_NAME }} --resource-group rg-tchungry-prod --settings "JWT__Key=${{ secrets.JWT_KEY }}" "JWT__Issuer=${{ secrets.JWT_ISSUER }}" "JWT__Audience=${{ secrets.JWT_AUDIENCE }}"
