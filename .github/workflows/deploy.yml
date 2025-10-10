@@ -32,32 +32,65 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
       
-      # 5. REMOVE RESTRIÇÕES DE REDE TEMPORARIAMENTE
+      # 5. REMOVE RESTRIÇÕES DE REDE TEMPORARIAMENTE (Site + SCM)
       - name: 'Remover restrições de rede (temporário)'
         uses: Azure/CLI@v1
         with:
           inlineScript: |
             echo "🔓 Removendo restrições de rede temporariamente..."
             
-            # Lista todas as regras atuais e remove
+            FUNC_NAME="${{ secrets.FUNCTION_APP_NAME }}"
+            RG_NAME="rg-tchungry-prod"
+            
+            # Remove restrições do site principal
+            echo "📍 Removendo restrições do site principal..."
             az functionapp config access-restriction show \
-              --name ${{ secrets.FUNCTION_APP_NAME }} \
-              --resource-group rg-tchungry-prod \
+              --name $FUNC_NAME \
+              --resource-group $RG_NAME \
               --query "ipSecurityRestrictions[].name" -o tsv | \
             while read rule; do
-              if [ ! -z "$rule" ]; then
+              if [ ! -z "$rule" ] && [ "$rule" != "Allow" ]; then
+                echo "  Removendo regra: $rule"
                 az functionapp config access-restriction remove \
-                  --name ${{ secrets.FUNCTION_APP_NAME }} \
-                  --resource-group rg-tchungry-prod \
-                  --rule-name "$rule" || true
+                  --name $FUNC_NAME \
+                  --resource-group $RG_NAME \
+                  --rule-name "$rule" 2>/dev/null || true
               fi
             done
             
-            echo "✅ Restrições removidas!"
+            # Remove restrições do SCM site (Kudu/Deploy) - CRÍTICO PARA DEPLOY!
+            echo "🔧 Removendo restrições do SCM site (Kudu)..."
+            az functionapp config access-restriction show \
+              --name $FUNC_NAME \
+              --resource-group $RG_NAME \
+              --query "scmIpSecurityRestrictions[].name" -o tsv | \
+            while read rule; do
+              if [ ! -z "$rule" ] && [ "$rule" != "Allow" ]; then
+                echo "  Removendo regra SCM: $rule"
+                az functionapp config access-restriction remove \
+                  --name $FUNC_NAME \
+                  --resource-group $RG_NAME \
+                  --rule-name "$rule" \
+                  --scm-site 2>/dev/null || true
+              fi
+            done
+            
+            # Garante acesso público habilitado
+            echo "🌐 Habilitando acesso público..."
+            az resource update \
+              --resource-group $RG_NAME \
+              --name $FUNC_NAME \
+              --resource-type "Microsoft.Web/sites" \
+              --set properties.publicNetworkAccess=Enabled 2>/dev/null || true
+            
+            echo "✅ Restrições removidas (site + SCM)!"
       
       # 6. Aguarda propagação das mudanças de rede
       - name: 'Aguardar propagação'
-        run: sleep 30
+        run: |
+          echo "⏳ Aguardando propagação das mudanças de rede..."
+          sleep 45
+          echo "✅ Propagação concluída!"
       
       # 7. Configura as variáveis de ambiente
       - name: 'Set Application Settings in Azure'
@@ -91,7 +124,7 @@ jobs:
           app-name: ${{ secrets.FUNCTION_APP_NAME }}
           package: './publish'
       
-      # 9. RESTAURA AS RESTRIÇÕES DE REDE
+      # 9. RESTAURA AS RESTRIÇÕES DE REDE (Site + SCM)
       - name: 'Restaurar restrições de rede'
         if: always() # Executa mesmo se houver falha nos steps anteriores
         uses: Azure/CLI@v1
@@ -99,31 +132,54 @@ jobs:
           inlineScript: |
             echo "🔒 Restaurando restrições de rede..."
             
-            # Bloqueia todo acesso público
+            FUNC_NAME="${{ secrets.FUNCTION_APP_NAME }}"
+            RG_NAME="rg-tchungry-prod"
+            
+            # === SITE PRINCIPAL ===
+            echo "📍 Configurando restrições do site principal..."
+            
+            # Libera apenas o APIM (ajuste conforme sua subnet do APIM)
             az functionapp config access-restriction add \
-              --name ${{ secrets.FUNCTION_APP_NAME }} \
-              --resource-group rg-tchungry-prod \
+              --name $FUNC_NAME \
+              --resource-group $RG_NAME \
+              --rule-name AllowAPIM \
+              --action Allow \
+              --priority 100 \
+              --vnet-name vnet-tchungry-prod \
+              --subnet snet-apim 2>/dev/null || echo "⚠️ Aviso: não foi possível adicionar regra do APIM (verifique nomes da vnet/subnet)"
+            
+            # Bloqueia todo o resto
+            az functionapp config access-restriction add \
+              --name $FUNC_NAME \
+              --resource-group $RG_NAME \
               --rule-name DenyAllPublic \
               --action Deny \
               --priority 2147483647
             
-            # Libera apenas o APIM (ajuste o IP/CIDR do seu APIM)
+            # === SCM SITE (KUDU/DEPLOY) ===
+            echo "🔧 Configurando restrições do SCM site..."
+            
+            # Libera APIM no SCM também
             az functionapp config access-restriction add \
-              --name ${{ secrets.FUNCTION_APP_NAME }} \
-              --resource-group rg-tchungry-prod \
-              --rule-name AllowAPIM \
+              --name $FUNC_NAME \
+              --resource-group $RG_NAME \
+              --rule-name AllowAPIM_SCM \
               --action Allow \
               --priority 100 \
-              --vnet-name sua-vnet \
-              --subnet snet-apim
+              --vnet-name vnet-tchungry-prod \
+              --subnet snet-apim \
+              --scm-site 2>/dev/null || echo "⚠️ Aviso: não foi possível adicionar regra do APIM no SCM"
             
-            # OU se usar Private Endpoint, apenas nega público:
-            # az functionapp config set \
-            #   --name ${{ secrets.FUNCTION_APP_NAME }} \
-            #   --resource-group rg-tchungry-prod \
-            #   --public-network-access Disabled
+            # Bloqueia todo o resto no SCM
+            az functionapp config access-restriction add \
+              --name $FUNC_NAME \
+              --resource-group $RG_NAME \
+              --rule-name DenyAllPublic_SCM \
+              --action Deny \
+              --priority 2147483647 \
+              --scm-site
             
-            echo "✅ Restrições restauradas! Function App está privada novamente."
+            echo "✅ Restrições restauradas! Function App está privada novamente (site + SCM)."
       
       # 10. Logout do Azure
       - name: 'Azure Logout'
