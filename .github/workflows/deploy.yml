@@ -138,7 +138,13 @@ jobs:
             # === SITE PRINCIPAL ===
             echo "📍 Bloqueando acesso público no site principal..."
             
-            # Bloqueia todo acesso público
+            # Remove a regra DenyAllPublic se já existir
+            az functionapp config access-restriction remove \
+              --name $FUNC_NAME \
+              --resource-group $RG_NAME \
+              --rule-name DenyAllPublic 2>/dev/null || true
+            
+            # Recria a regra bloqueando todo acesso público
             az functionapp config access-restriction add \
               --name $FUNC_NAME \
               --resource-group $RG_NAME \
@@ -150,7 +156,14 @@ jobs:
             # === SCM SITE (KUDU/DEPLOY) ===
             echo "🔧 Bloqueando acesso público no SCM site..."
             
-            # Bloqueia todo acesso público no SCM
+            # Remove a regra DenyAllPublic_SCM se já existir
+            az functionapp config access-restriction remove \
+              --name $FUNC_NAME \
+              --resource-group $RG_NAME \
+              --rule-name DenyAllPublic_SCM \
+              --scm-site 2>/dev/null || true
+            
+            # Recria a regra bloqueando todo acesso público no SCM
             az functionapp config access-restriction add \
               --name $FUNC_NAME \
               --resource-group $RG_NAME \
