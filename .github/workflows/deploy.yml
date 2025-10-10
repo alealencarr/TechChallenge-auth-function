@@ -136,50 +136,32 @@ jobs:
             RG_NAME="rg-tchungry-prod"
             
             # === SITE PRINCIPAL ===
-            echo "📍 Configurando restrições do site principal..."
+            echo "📍 Bloqueando acesso público no site principal..."
             
-            # Libera apenas o APIM (ajuste conforme sua subnet do APIM)
-            az functionapp config access-restriction add \
-              --name $FUNC_NAME \
-              --resource-group $RG_NAME \
-              --rule-name AllowAPIM \
-              --action Allow \
-              --priority 100 \
-              --vnet-name vnet-tchungry-prod \
-              --subnet snet-apim 2>/dev/null || echo "⚠️ Aviso: não foi possível adicionar regra do APIM (verifique nomes da vnet/subnet)"
-            
-            # Bloqueia todo o resto
+            # Bloqueia todo acesso público
             az functionapp config access-restriction add \
               --name $FUNC_NAME \
               --resource-group $RG_NAME \
               --rule-name DenyAllPublic \
               --action Deny \
+              --ip-address 0.0.0.0/0 \
               --priority 2147483647
             
             # === SCM SITE (KUDU/DEPLOY) ===
-            echo "🔧 Configurando restrições do SCM site..."
+            echo "🔧 Bloqueando acesso público no SCM site..."
             
-            # Libera APIM no SCM também
-            az functionapp config access-restriction add \
-              --name $FUNC_NAME \
-              --resource-group $RG_NAME \
-              --rule-name AllowAPIM_SCM \
-              --action Allow \
-              --priority 100 \
-              --vnet-name vnet-tchungry-prod \
-              --subnet snet-apim \
-              --scm-site 2>/dev/null || echo "⚠️ Aviso: não foi possível adicionar regra do APIM no SCM"
-            
-            # Bloqueia todo o resto no SCM
+            # Bloqueia todo acesso público no SCM
             az functionapp config access-restriction add \
               --name $FUNC_NAME \
               --resource-group $RG_NAME \
               --rule-name DenyAllPublic_SCM \
               --action Deny \
+              --ip-address 0.0.0.0/0 \
               --priority 2147483647 \
               --scm-site
             
-            echo "✅ Restrições restauradas! Function App está privada novamente (site + SCM)."
+            echo "✅ Restrições restauradas!"
+            echo "ℹ️ Apenas o APIM via Private Endpoint consegue acessar agora."
       
       # 10. Logout do Azure
       - name: 'Azure Logout'
