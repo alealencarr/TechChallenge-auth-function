@@ -4,73 +4,128 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
+    
     steps:
+      # 1. Baixa o código do repositório
       - name: 'Checkout'
         uses: actions/checkout@v4
-
+      
+      # 2. Instala o SDK do .NET 8
       - name: 'Setup .NET'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-          
-      - name: 'Build and publish'
+      
+      # 3. Compila e publica o projeto
+      - name: 'Build and Publish'
         run: |
-          dotnet build --configuration Release
-          dotnet publish --configuration Release --output ./publish
-
+          dotnet publish --configuration Release --output ./publish --self-contained true -p:PublishReadyToRun=true
+      
+      # 4. Faz login no Azure
       - name: 'Azure Login'
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      # --- ✅ BLOCO NOVO ADICIONADO ---
-      # Abre um "portão de serviço" temporário para o deploy
-      - name: 'Allow GitHub Actions IP'
+      
+      # 5. REMOVE RESTRIÇÕES DE REDE TEMPORARIAMENTE
+      - name: 'Remover restrições de rede (temporário)'
         uses: Azure/CLI@v1
         with:
           inlineScript: |
-         
-            RUNNER_IP=$(curl -s 'https://api.ipify.org')
-            echo "Pipeline runner IP is $RUNNER_IP"
+            echo "🔓 Removendo restrições de rede temporariamente..."
             
-            az functionapp config access-restriction add \
-              --resource-group rg-tchungry-prod \
+            # Lista todas as regras atuais e remove
+            az functionapp config access-restriction show \
               --name ${{ secrets.FUNCTION_APP_NAME }} \
-              --rule-name "Allow GitHub Actions Runner" \
-              --action Allow \
-              --ip-address $RUNNER_IP \
-              --priority 200 \
-              --scm-site true
-
-      - name: 'Deploy to Azure Functions'
+              --resource-group rg-tchungry-prod \
+              --query "ipSecurityRestrictions[].name" -o tsv | \
+            while read rule; do
+              if [ ! -z "$rule" ]; then
+                az functionapp config access-restriction remove \
+                  --name ${{ secrets.FUNCTION_APP_NAME }} \
+                  --resource-group rg-tchungry-prod \
+                  --rule-name "$rule" || true
+              fi
+            done
+            
+            echo "✅ Restrições removidas!"
+      
+      # 6. Aguarda propagação das mudanças de rede
+      - name: 'Aguardar propagação'
+        run: sleep 30
+      
+      # 7. Configura as variáveis de ambiente
+      - name: 'Set Application Settings in Azure'
+        uses: Azure/CLI@v1
+        with:
+          inlineScript: |
+            echo "⚙️ Configurando variáveis de ambiente..."
+            
+            # Connection String do Banco
+            az webapp config connection-string set \
+              --name ${{ secrets.FUNCTION_APP_NAME }} \
+              --resource-group rg-tchungry-prod \
+              --connection-string-type SQLAzure \
+              --settings "Default=${{ secrets.DB_CONNECTION_STRING }}"
+            
+            # Configurações JWT
+            az functionapp config appsettings set \
+              --name ${{ secrets.FUNCTION_APP_NAME }} \
+              --resource-group rg-tchungry-prod \
+              --settings \
+                "JWT__Key=${{ secrets.JWT_KEY }}" \
+                "JWT__Issuer=${{ secrets.JWT_ISSUER }}" \
+                "JWT__Audience=${{ secrets.JWT_AUDIENCE }}"
+            
+            echo "✅ Variáveis configuradas!"
+      
+      # 8. Faz o deploy da Function App
+      - name: 'Deploy to Azure Function'
         uses: Azure/functions-action@v1
         with:
           app-name: ${{ secrets.FUNCTION_APP_NAME }}
           package: './publish'
       
-      # --- ✅ BLOCO NOVO ADICIONADO ---
-      # Fecha o "portão de serviço", aconteça o que acontecer
-      - name: 'Remove GitHub Actions IP'
-        # 'if: always()' garante que este passo corre SEMPRE, mesmo que o deploy falhe
-        if: always()
+      # 9. RESTAURA AS RESTRIÇÕES DE REDE
+      - name: 'Restaurar restrições de rede'
+        if: always() # Executa mesmo se houver falha nos steps anteriores
         uses: Azure/CLI@v1
         with:
           inlineScript: |
-            echo "Removing temporary access rule..."
-            az functionapp config access-restriction remove \
-              --resource-group rg-tchungry-prod \
+            echo "🔒 Restaurando restrições de rede..."
+            
+            # Bloqueia todo acesso público
+            az functionapp config access-restriction add \
               --name ${{ secrets.FUNCTION_APP_NAME }} \
-              --rule-name "Allow GitHub Actions Runner" \
-              --scm-site true
+              --resource-group rg-tchungry-prod \
+              --rule-name DenyAllPublic \
+              --action Deny \
+              --priority 2147483647
+            
+            # Libera apenas o APIM (ajuste o IP/CIDR do seu APIM)
+            az functionapp config access-restriction add \
+              --name ${{ secrets.FUNCTION_APP_NAME }} \
+              --resource-group rg-tchungry-prod \
+              --rule-name AllowAPIM \
+              --action Allow \
+              --priority 100 \
+              --vnet-name sua-vnet \
+              --subnet snet-apim
+            
+            # OU se usar Private Endpoint, apenas nega público:
+            # az functionapp config set \
+            #   --name ${{ secrets.FUNCTION_APP_NAME }} \
+            #   --resource-group rg-tchungry-prod \
+            #   --public-network-access Disabled
+            
+            echo "✅ Restrições restauradas! Function App está privada novamente."
       
-      # A configuração das App Settings continua igual
-      - name: 'Set Application Settings in Azure'
-        uses: Azure/CLI@v1
-        with:
-          inlineScript: |
-            az webapp config connection-string set --name ${{ secrets.FUNCTION_APP_NAME }} --resource-group rg-tchungry-prod --connection-string-type SQLAzure --settings "Default=${{ secrets.DB_CONNECTION_STRING }}"
-            az functionapp config appsettings set --name ${{ secrets.FUNCTION_APP_NAME }} --resource-group rg-tchungry-prod --settings "JWT__Key=${{ secrets.JWT_KEY }}" "JWT__Issuer=${{ secrets.JWT_ISSUER }}" "JWT__Audience=${{ secrets.JWT_AUDIENCE }}"
+      # 10. Logout do Azure
+      - name: 'Azure Logout'
+        if: always()
+        run: az logout
