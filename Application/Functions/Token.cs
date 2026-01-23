@@ -44,25 +44,25 @@ public class Token
                 return errorCpf;
             }
 
-            var user = await _userRepository.ValidateAutentication(requestDto.ClientId, requestDto.ClientSecret);
+            //var user = await _userRepository.ValidateAutentication(requestDto.ClientId, requestDto.ClientSecret);
 
-            if (user is null)
-            {
-                var message = "Informações não encontradas com base neste Client Id e Client Secret.";
+            //if (user is null)
+            //{
+            //    var message = "Informações não encontradas com base neste Client Id e Client Secret.";
 
-                var errorCpf = req.CreateResponse(HttpStatusCode.BadRequest);
+            //    var errorCpf = req.CreateResponse(HttpStatusCode.BadRequest);
 
-                await errorCpf.WriteAsJsonAsync(new
-                {
-                    data = (object?)null,
-                    messages = new List<string> { message }
-                });
-                return errorCpf;
+            //    await errorCpf.WriteAsJsonAsync(new
+            //    {
+            //        data = (object?)null,
+            //        messages = new List<string> { message }
+            //    });
+            //    return errorCpf;
 
-            }
+            //}
 
-            var token = _tokenService.GenerateUserToken(user);
-
+            //var token = _tokenService.GenerateUserToken(user);
+            var token = _tokenService.GenerateGuestToken();
             var tokenResponse = new
             {
                 access_token = token,
