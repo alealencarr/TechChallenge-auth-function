@@ -32,30 +32,30 @@ public class Authorization
 
         string token;
 
-        if (!string.IsNullOrWhiteSpace(cpf))
-        {
-            var customer = await _customerHttpService.GetCustomerByCpf(cpf);
+        //if (!string.IsNullOrWhiteSpace(cpf))
+        //{
+        //    var customer = await _customerHttpService.GetCustomerByCpf(cpf);
 
-            if (customer is null)
-            {
-                var message = "Cliente não encontrado com esse CPF.";
+        //    if (customer is null)
+        //    {
+        //        var message = "Cliente não encontrado com esse CPF.";
 
-                var errorCpf = req.CreateResponse(HttpStatusCode.BadRequest);
+        //        var errorCpf = req.CreateResponse(HttpStatusCode.BadRequest);
 
-                await errorCpf.WriteAsJsonAsync(new
-                {
-                    data = (object?)null,
-                    messages = new List<string> { message }
-                });
-                return errorCpf;
-            }
+        //        await errorCpf.WriteAsJsonAsync(new
+        //        {
+        //            data = (object?)null,
+        //            messages = new List<string> { message }
+        //        });
+        //        return errorCpf;
+        //    }
 
-            token = _tokenService.GenerateCustomerToken(customer);
-        }
-        else
-        {
+        //    token = _tokenService.GenerateCustomerToken(customer);
+        //}
+        //else
+        //{
             token = _tokenService.GenerateGuestToken();
-        }
+        //}
 
         var tokenResponse = new
         {
