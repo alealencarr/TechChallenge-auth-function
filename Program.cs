@@ -4,10 +4,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using System.Configuration;
+using TechChallenge_auth_function.Application.Externals;
+using TechChallenge_auth_function.Application.Gateways;
+using TechChallenge_auth_function.Application.Services.Token;
 using TechChallenge_auth_function.Infrastructure;
-using TechChallenge_auth_function.Repositories.Customer;
-using TechChallenge_auth_function.Services.Token;
+using TechChallenge_auth_function.Infrastructure.HttpService;
+using TechChallenge_auth_function.Infrastructure.Repositories.User;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 
@@ -17,8 +19,10 @@ builder.Services
     .AddApplicationInsightsTelemetryWorkerService()
     .ConfigureFunctionsApplicationInsights();
 
-builder.Services.AddScoped<ICustomerRepository, CustomerRepository>();
 builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<ICustomerHttpService, CustomerHttpService>();
+builder.Services.AddTransient<TokenAuthenticationHandler>();
 
 builder.Services.AddDbContext<AppDbContext>(x =>
 {
@@ -31,5 +35,17 @@ builder.Services.AddDbContext<AppDbContext>(x =>
         );
     });
 });
+
+var baseUrl = builder.Configuration[$"CustomersHttpClient:BaseUrl"];
+
+builder.Services.AddHttpClient("CustomersHttpClient", client =>
+{
+    if (!string.IsNullOrEmpty(baseUrl))
+        client.BaseAddress = new Uri(baseUrl);
+
+    client.DefaultRequestHeaders.Add("Accept", "application/json");
+})
+.AddHttpMessageHandler<TokenAuthenticationHandler>();
+
 
 builder.Build().Run();

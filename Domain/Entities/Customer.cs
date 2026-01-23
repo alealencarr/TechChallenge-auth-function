@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace TechChallenge_auth_function.Entities
+namespace TechChallenge_auth_function.Domain.Entities
 {
     public class Customer
     {

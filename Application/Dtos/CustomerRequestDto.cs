@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace TechChallenge_auth_function.Dtos
+namespace TechChallenge_auth_function.Application.Dtos
 {
     public record CustomerRequestDto
     {

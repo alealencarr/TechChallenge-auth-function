@@ -114,14 +114,15 @@ jobs:
               --connection-string-type SQLAzure \
               --settings "Default=${{ secrets.DB_CONNECTION_STRING }}"
             
-            # Configurações JWT
+            # Configurações JWT + CustomersHttpClient
             az functionapp config appsettings set \
               --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
               --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
               --settings \
                 "JWT__Key=${{ secrets.JWT_KEY }}" \
                 "JWT__Issuer=${{ secrets.JWT_ISSUER }}" \
-                "JWT__Audience=${{ secrets.JWT_AUDIENCE }}"
+                "JWT__Audience=${{ secrets.JWT_AUDIENCE }}" \
+                "CustomersHttpClient__BaseUrl=${{ secrets.CUSTOMERS_HTTP_CLIENT_BASE_URL }}"
             
             echo "✅ Settings configured!"
 

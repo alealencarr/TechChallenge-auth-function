@@ -3,8 +3,9 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using TechChallenge_auth_function.Domain.Entities;
 
-namespace TechChallenge_auth_function.Services.Token
+namespace TechChallenge_auth_function.Application.Services.Token
 {
     public class TokenService : ITokenService
     {
@@ -20,7 +21,7 @@ namespace TechChallenge_auth_function.Services.Token
             _audience = _configuration["Jwt:Audience"]!;
         }
 
-        public string GenerateCustomerToken(Entities.Customer customer)
+        public string GenerateCustomerToken(Customer customer)
         {
             var claims = new List<Claim>
             {
@@ -39,6 +40,18 @@ namespace TechChallenge_auth_function.Services.Token
                 // Um ID único para a sessão anônima
                 new("guest_id", Guid.NewGuid().ToString()),
                 new(ClaimTypes.Role, "Guest")
+            };
+
+            return GenerateToken(claims, DateTime.UtcNow.AddHours(1));
+        }
+
+        public string GenerateUserToken(User user)
+        {
+            var claims = new List<Claim>
+            {
+                new("clientId", user.ClientId),
+                new(ClaimTypes.Name, user.Name ?? string.Empty),
+                new(ClaimTypes.Role, "User")
             };
 
             return GenerateToken(claims, DateTime.UtcNow.AddHours(1));
